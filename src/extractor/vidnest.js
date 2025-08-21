@@ -1,37 +1,43 @@
 import axios from 'axios';
-import cheerio from 'cheerio';
-import config from '../config/config.js';
+import * as cheerio from 'cheerio';
 
 /**
- * Fetch stream URLs for a given anime episode in Hindi
- * @param {string} episodeId - e.g., "one-piece-100"
- * @returns {Promise<Object>} - { serverName: streamUrl, ... }
+ * Fetch all Hindi dubbed streams for an anime
+ * @param {string} animeId
+ * @param {number} episodeNumber
  */
-export async function fetchVidnestHindiStreamByEpisode(episodeId) {
+export const fetchVidnestHindiStreams = async (animeId, episodeNumber) => {
   try {
-    const url = `${config.baseurl}/watch/${episodeId}`;
-    const { data } = await axios.get(url, {
-      headers: { ...config.headers, Referer: config.baseurl },
-    });
-
-    const $ = cheerio.load(data);
-    const servers = {};
-
-    // Example: parse all Hindi server links
-    $('div.server-item').each((i, el) => {
-      const serverName = $(el).attr('data-server-name');
-      const streamUrl = $(el).attr('data-server-url');
-      if (serverName && streamUrl) {
-        servers[serverName.toUpperCase()] = streamUrl;
-      }
-    });
-
-    if (Object.keys(servers).length === 0)
-      throw new Error('No Hindi servers found for this episode');
-
-    return servers;
+    const url = `https://vidnest.com/api/hindi/${animeId}/episodes/${episodeNumber}`;
+    const { data } = await axios.get(url);
+    if (!data || !data.streams) return [];
+    return data.streams.map((s) => ({
+      server: s.server,
+      url: s.url,
+      quality: s.quality,
+    }));
   } catch (err) {
-    console.error('VidNest Fetch Error:', err.message);
-    throw new Error('Failed to fetch Hindi streams for this episode');
+    console.error('Vidnest fetchHindiStreams error:', err.message);
+    return [];
   }
-}
+};
+
+/**
+ * Fetch a single Hindi dubbed stream by episode number
+ * @param {number|string} episodeNumber
+ */
+export const fetchVidnestHindiStreamByEpisode = async (episodeNumber) => {
+  try {
+    const url = `https://vidnest.com/api/hindi/episode/${episodeNumber}`;
+    const { data } = await axios.get(url);
+    if (!data || !data.streams) return [];
+    return data.streams.map((s) => ({
+      server: s.server,
+      url: s.url,
+      quality: s.quality,
+    }));
+  } catch (err) {
+    console.error('Vidnest fetchHindiStreamByEpisode error:', err.message);
+    return [];
+  }
+};
