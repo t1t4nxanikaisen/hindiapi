@@ -1,7 +1,7 @@
-# <p align="center">📺 hianime-API</p>
+# <p align="center">📺 Anikaisen API</p>
 
 <div align="center">
-    hianime-API is a RESTful API that utilizes web scraping to fetch anime content from hianime.to. It provides endpoints to retrieve anime details, episodes, and streaming links.
+   Anikaisen API is a RESTful API that utilizes web scraping to fetch anime content from hianime.to. It provides endpoints to retrieve anime details, episodes, and streaming links.
 </div>
 <br/>
 
