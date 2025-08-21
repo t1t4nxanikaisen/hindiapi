@@ -3,83 +3,79 @@ import axios from "axios";
 import { validationError } from "../utils/errors.js";
 import config from "../config/config.js";
 import { extractEpisodes } from "../extractor/extractEpisodes.js";
-import { slugToTitle, getAniListIdByTitle } from "../utils/anilist.js";
-import { fetchVidnestHindiStreams } from "../extractor/vidnest.js";
+import anilistUtils from "../utils/anilist.js";
+import vidnest from "../extractor/vidnest.js";
 
-/**
- * Episodes controller — returns normalized array of episodes with hindiStreams
- */
+const { slugToTitle, getAniListIdByTitle } = anilistUtils;
+const { fetchVidnestHindiStreams } = vidnest;
+
+const DEFAULT_CONCURRENCY = 6;
+
+async function mapWithThrottle(items, workerFn, concurrency = DEFAULT_CONCURRENCY) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (true) {
+      const i = idx++;
+      if (i >= items.length) break;
+      try {
+        results[i] = await workerFn(items[i], i);
+      } catch (e) {
+        results[i] = [];
+      }
+    }
+  }
+  const workers = [];
+  for (let i = 0; i < Math.min(concurrency, items.length); i++) workers.push(worker());
+  await Promise.all(workers);
+  return results;
+}
+
 const episodesController = async (c) => {
   const id = c.req.param("id");
   if (!id) throw new validationError("id is required");
 
   const idNum = id.split("-").at(-1);
   const ajaxUrl = `/ajax/v2/episode/list/${idNum}`;
+
   try {
     const { data } = await axios.get(config.baseurl + ajaxUrl, {
       headers: { Referer: `/watch/${id}`, ...config.headers },
       timeout: 10000,
     });
 
-    const raw = data?.html ? extractEpisodes(data.html) : data;
-    const episodes = Array.isArray(raw) ? raw : [];
+    const rawEpisodes = data?.html ? extractEpisodes(data.html) : data;
+    const episodes = Array.isArray(rawEpisodes) ? rawEpisodes : [];
 
-    // Find AniList ID from slug/title for Vidnest lookup (best-effort)
+    // attempt AniList id lookup
     const titleGuess = slugToTitle(id);
     const anilistId = await getAniListIdByTitle(titleGuess);
 
-    // If there's an AniList ID, fetch Hindi streams per episode concurrently (throttled)
-    const concurrency = 6;
-    const results = [];
-    const queue = episodes.map((ep) => ep); // copy
+    // fetch hindi streams for each episode concurrently (throttled)
+    const hindiResults = anilistId
+      ? await mapWithThrottle(
+          episodes,
+          async (ep) => {
+            const epNum = ep?.episodeNumber ?? ep?.episode ?? (typeof ep?.id === "string" && ep.id.includes("ep=") ? Number(ep.id.split("ep=").pop()) : null);
+            if (!epNum) return [];
+            return await fetchVidnestHindiStreams(anilistId, epNum);
+          },
+          DEFAULT_CONCURRENCY
+        )
+      : new Array(episodes.length).fill([]);
 
-    async function worker() {
-      while (queue.length) {
-        const ep = queue.shift();
-        const epNum =
-          ep?.episodeNumber ??
-          ep?.episode ??
-          (typeof ep?.id === "string" && ep.id.includes("ep=") ? Number(ep.id.split("ep=").pop()) : null);
-        let hindi = [];
-        if (anilistId && epNum != null) {
-          try {
-            hindi = await fetchVidnestHindiStreams(anilistId, epNum);
-          } catch (err) {
-            hindi = [];
-          }
-        }
-        results.push({ ep, hindi });
-      }
-    }
-
-    // launch workers
-    const workers = Array.from({ length: Math.min(concurrency, episodes.length) }, () => worker());
-    await Promise.all(workers);
-
-    // assemble normalized episodes, keep order by looking up episodeNumber
-    const hindiMap = {};
-    results.forEach((r) => {
-      const num =
-        r.ep?.episodeNumber ??
-        r.ep?.episode ??
-        (typeof r.ep?.id === "string" && r.ep.id.includes("ep=") ? Number(r.ep.id.split("ep=").pop()) : null);
-      if (num != null) hindiMap[num] = r.hindi || [];
-    });
-
-    const normalized = episodes.map((ep) => {
-      const epNum =
-        ep?.episodeNumber ??
-        ep?.episode ??
-        (typeof ep?.id === "string" && ep.id.includes("ep=") ? Number(ep.id.split("ep=").pop()) : null);
-
+    // assemble normalized episodes
+    const normalized = episodes.map((ep, idx) => {
+      const epNum = ep?.episodeNumber ?? ep?.episode ?? (typeof ep?.id === "string" && ep.id.includes("ep=") ? Number(ep.id.split("ep=").pop()) : null);
       return {
         id: ep.id ?? `${id}?ep=${epNum ?? ""}`,
         episodeNumber: epNum,
         title: ep.title ?? ep.name ?? `Episode ${epNum ?? ""}`,
         isFiller: Boolean(ep.isFiller || ep?.filler),
-        subStreams: ep.subStreams ?? ep.sources?.sub ?? ep.sub ?? [],
-        dubStreams: ep.dubStreams ?? ep.sources?.dub ?? ep.dub ?? [],
-        hindiStreams: Array.isArray(hindiMap[Number(epNum)]) ? hindiMap[Number(epNum)] : [],
+        subStreams: ep.subStreams ?? ep.sources?.sub ?? ep.sub ?? (ep.streams && ep.streams.sub) ?? [],
+        dubStreams: ep.dubStreams ?? ep.sources?.dub ?? ep.dub ?? (ep.streams && ep.streams.dub) ?? [],
+        // attach vidnest results (safe default to [])
+        hindiStreams: Array.isArray(hindiResults[idx]) ? hindiResults[idx] : [],
       };
     });
 
