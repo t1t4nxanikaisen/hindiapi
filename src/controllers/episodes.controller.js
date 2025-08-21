@@ -1,50 +1,54 @@
+import axios from 'axios';
 import { validationError } from '../utils/errors.js';
-import { getServers } from './serversController.js';
-import { extractStream } from '../extractor/extractStream.js';
-import { fetchVidnestHindiStreamByEpisode } from '../extractor/vidnest.js';
+import config from '../config/config.js';
+import { extractEpisodes } from '../extractor/extractEpisodes.js';
+import { fetchVidnestHindiStreams } from '../extractor/vidnest.js'; // Hindi streams
 
 /**
- * Stream Controller
- * Fetches the streaming links for a specific episode
- * Supports sub, dub, and Hindi dubbed (from Vidnest)
+ * Episodes Controller
+ * Fetch all episodes (sub, dub, Hindi dubbed) for a given anime
  */
-const streamController = async (c) => {
-  let { id, server = 'HD-1', type = 'sub' } = c.req.query();
+const episodesController = async (c) => {
+  const id = c.req.param('id');
 
   if (!id) throw new validationError('id is required');
 
-  type = type.toLowerCase();
-  server = server.toUpperCase();
+  const Referer = `/watch/${id}`;
+  const idNum = id.split('-').at(-1);
+  const ajaxUrl = `/ajax/v2/episode/list/${idNum}`;
 
-  // Validate episode id
-  if (!id.includes('ep=')) throw new validationError('episode id is not valid');
+  try {
+    // 1️⃣ Fetch standard episodes from Anikaisen
+    const { data } = await axios.get(config.baseurl + ajaxUrl, {
+      headers: {
+        Referer: Referer,
+        ...config.headers,
+      },
+    });
 
-  // Fetch all available servers
-  const servers = await getServers(id);
+    const episodes = extractEpisodes(data.html);
 
-  // Handle Hindi dubbed separately
-  if (type === 'hindi') {
-    const episodeNum = id.split('ep=').pop();
-    const hindiStreams = await fetchVidnestHindiStreamByEpisode(episodeNum);
-    if (!hindiStreams || Object.keys(hindiStreams).length === 0)
-      throw new validationError('Hindi dubbed stream not found');
+    // 2️⃣ Fetch Hindi dubbed streams for each episode
+    const hindiStreamsPromises = episodes.map((ep) =>
+      fetchVidnestHindiStreams(idNum, ep.episodeNumber)
+    );
 
-    return {
-      server: 'Vidnest Hindi',
-      type: 'hindi',
-      streams: hindiStreams,
-    };
+    const hindiStreamsResults = await Promise.all(hindiStreamsPromises);
+
+    // 3️⃣ Attach Hindi streams to each episode
+    const enrichedEpisodes = episodes.map((ep, index) => ({
+      ...ep,
+      hindiStreams: hindiStreamsResults[index] || [],
+    }));
+
+    return enrichedEpisodes;
+  } catch (err) {
+    console.error(err.message);
+
+    throw new validationError('Make sure the id is correct', {
+      validIdEX: 'one-piece-100',
+    });
   }
-
-  // For sub/dub streams
-  if (!servers[type]) throw new validationError('Invalid type requested', { type });
-
-  const selectedServer = servers[type].find((el) => el.name === server);
-  if (!selectedServer)
-    throw new validationError('Invalid server or server not found', { server });
-
-  const response = await extractStream({ selectedServer, id });
-  return response;
 };
 
-export default streamController;
+export default episodesController;
