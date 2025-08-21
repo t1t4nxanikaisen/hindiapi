@@ -5,9 +5,10 @@ import * as cheerio from "cheerio";
 const USER_AGENT = "Mozilla/5.0 (compatible; VidnestFetcher/1.0)";
 
 /**
- * Fetch Vidnest page HTML
+ * Fetch the vidnest page and extract playable stream URLs.
+ * Returns array of { url, title? }
  */
-async function fetchPageHtml(url) {
+async function fetchHtml(url) {
   const { data } = await axios.get(url, {
     headers: { "User-Agent": USER_AGENT, Accept: "text/html" },
     timeout: 10000,
@@ -15,65 +16,63 @@ async function fetchPageHtml(url) {
   return data;
 }
 
-/**
- * Extract potential playable links from vidnest page HTML
- * Return array of { url, title?, quality? }
- */
 export async function fetchVidnestHindiStreams(anilistId, episodeNumber) {
   if (!anilistId || !episodeNumber) return [];
   const url = `https://vidnest.fun/anime/${encodeURIComponent(String(anilistId))}/${encodeURIComponent(String(episodeNumber))}/hindi`;
+
   try {
-    const html = await fetchPageHtml(url);
+    const html = await fetchHtml(url);
     const $ = cheerio.load(html);
     const streams = [];
 
-    // 1) iframes (common)
-    $("iframe").each((_, el) => {
+    // 1) iframes
+    $("iframe").each((i, el) => {
       const src = $(el).attr("src") || $(el).attr("data-src");
-      if (src) streams.push({ url: src, title: "embed" });
-    });
-
-    // 2) video > source
-    $("video source").each((_, el) => {
-      const src = $(el).attr("src");
-      const type = $(el).attr("type") || null;
-      if (src) streams.push({ url: src, title: type || "video" });
-    });
-
-    // 3) anchor links to .m3u8/.mp4 or known stream paths
-    $("a[href]").each((_, el) => {
-      const href = $(el).attr("href");
-      if (!href) return;
-      if (/\.(m3u8|mp4|mkv|m3u|mpd)(\?|$)/i.test(href) || href.includes("/stream/") || href.includes("drive.google.com")) {
-        streams.push({ url: href, title: ($(el).text() || "link").trim() });
+      if (src) {
+        const full = src.startsWith("http") ? src : new URL(src, url).href;
+        streams.push({ url: full, title: "embed" });
       }
     });
 
-    // 4) JS sniff for m3u8 in scripts
-    const scripts = $("script")
-      .map((_, s) => $(s).html())
-      .get()
-      .join("\n");
-    const m3u8Matches = scripts.match(/https?:\/\/[^'"\s]+\.m3u8[^'"\s]*/g) || [];
-    m3u8Matches.forEach((u) => streams.push({ url: u, title: "m3u8" }));
+    // 2) video > source
+    $("video source").each((i, el) => {
+      const src = $(el).attr("src");
+      if (src) streams.push({ url: src.startsWith("http") ? src : new URL(src, url).href, title: "video" });
+    });
 
-    // normalize and dedupe
-    const unique = [];
+    // 3) anchors to mp4/m3u8 etc
+    $("a[href]").each((i, el) => {
+      const href = $(el).attr("href");
+      if (!href) return;
+      if (/\.(m3u8|mp4|mkv|mpd|m3u)(\?|$)/i.test(href) || href.includes("/stream/") || href.includes("drive.google.com")) {
+        const full = href.startsWith("http") ? href : new URL(href, url).href;
+        streams.push({ url: full, title: ($(el).text() || "link").trim() });
+      }
+    });
+
+    // 4) scripts sniff (m3u8)
+    const scriptText = $("script").map((_, s) => $(s).html()).get().join("\n");
+    const m3u8s = (scriptText.match(/https?:\/\/[^'"\s]+\.m3u8[^'"\s]*/g) || []).filter(Boolean);
+    m3u8s.forEach((u) => streams.push({ url: u, title: "m3u8" }));
+
+    // dedupe and normalize absolute urls
     const seen = new Set();
+    const out = [];
     for (const s of streams) {
-      if (!s?.url) continue;
+      if (!s || !s.url) continue;
       const absolute = s.url.startsWith("http") ? s.url : new URL(s.url, url).href;
       if (seen.has(absolute)) continue;
       seen.add(absolute);
-      unique.push({ url: absolute, title: s.title ?? null });
+      out.push({ url: absolute, title: s.title || null });
     }
 
-    // If no links found, return the page url as fallback (so frontend can embed it)
-    if (!unique.length) return [{ url, title: "vidnest-page" }];
-
-    return unique;
+    // If nothing found return page url (frontend can embed it)
+    if (!out.length) return [{ url, title: "vidnest-page" }];
+    return out;
   } catch (err) {
     console.warn("fetchVidnestHindiStreams error:", err?.message || err);
     return [];
   }
 }
+
+export default { fetchVidnestHindiStreams };
