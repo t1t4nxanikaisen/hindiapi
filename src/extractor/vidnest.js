@@ -1,19 +1,37 @@
 import axios from 'axios';
+import cheerio from 'cheerio';
+import config from '../config/config.js';
 
 /**
- * Fetches Hindi dubbed stream URLs from Vidnest.
- * @param {string} animeId - The AniList ID of the anime.
- * @param {number} episodeNumber - The episode number.
- * @returns {Promise<string[]>} - A list of Hindi dubbed stream URLs.
+ * Fetch stream URLs for a given anime episode in Hindi
+ * @param {string} episodeId - e.g., "one-piece-100"
+ * @returns {Promise<Object>} - { serverName: streamUrl, ... }
  */
-export const fetchVidnestHindiStreams = async (animeId, episodeNumber) => {
+export async function fetchVidnestHindiStreamByEpisode(episodeId) {
   try {
-    const response = await axios.get(`https://vidnest.fun/animepahe/${animeId}/${episodeNumber}/hindi`);
-    // Extract and return the Hindi stream URLs from the response
-    // This will depend on the structure of the Vidnest response
-    return response.data.streamUrls; // Adjust according to actual response structure
-  } catch (error) {
-    console.error('Error fetching Vidnest Hindi streams:', error);
-    return [];
+    const url = `${config.baseurl}/watch/${episodeId}`;
+    const { data } = await axios.get(url, {
+      headers: { ...config.headers, Referer: config.baseurl },
+    });
+
+    const $ = cheerio.load(data);
+    const servers = {};
+
+    // Example: parse all Hindi server links
+    $('div.server-item').each((i, el) => {
+      const serverName = $(el).attr('data-server-name');
+      const streamUrl = $(el).attr('data-server-url');
+      if (serverName && streamUrl) {
+        servers[serverName.toUpperCase()] = streamUrl;
+      }
+    });
+
+    if (Object.keys(servers).length === 0)
+      throw new Error('No Hindi servers found for this episode');
+
+    return servers;
+  } catch (err) {
+    console.error('VidNest Fetch Error:', err.message);
+    throw new Error('Failed to fetch Hindi streams for this episode');
   }
-};
+}
