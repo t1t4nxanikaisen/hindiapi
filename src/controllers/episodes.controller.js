@@ -2,15 +2,14 @@ import axios from 'axios';
 import { validationError } from '../utils/errors.js';
 import config from '../config/config.js';
 import { extractEpisodes } from '../extractor/extractEpisodes.js';
-import { fetchVidnestHindiStreams } from '../extractor/vidnest.js'; // Hindi streams
+import { fetchVidnestHindiStreams } from '../extractor/vidnest.js';
 
 /**
  * Episodes Controller
- * Fetch all episodes (sub, dub, Hindi dubbed) for a given anime
+ * Fetches all episode info (sub, dub, and Hindi dubbed) for an anime.
  */
 const episodesController = async (c) => {
   const id = c.req.param('id');
-
   if (!id) throw new validationError('id is required');
 
   const Referer = `/watch/${id}`;
@@ -18,17 +17,17 @@ const episodesController = async (c) => {
   const ajaxUrl = `/ajax/v2/episode/list/${idNum}`;
 
   try {
-    // 1️⃣ Fetch standard episodes from Anikaisen
+    // 1️⃣ Fetch sub/dub episodes from the site
     const { data } = await axios.get(config.baseurl + ajaxUrl, {
       headers: {
-        Referer: Referer,
+        Referer,
         ...config.headers,
       },
     });
 
     const episodes = extractEpisodes(data.html);
 
-    // 2️⃣ Fetch Hindi dubbed streams for each episode
+    // 2️⃣ Fetch Hindi dubbed streams from Vidnest
     const hindiStreamsPromises = episodes.map((ep) =>
       fetchVidnestHindiStreams(idNum, ep.episodeNumber)
     );
@@ -44,7 +43,6 @@ const episodesController = async (c) => {
     return enrichedEpisodes;
   } catch (err) {
     console.error(err.message);
-
     throw new validationError('Make sure the id is correct', {
       validIdEX: 'one-piece-100',
     });
