@@ -1,35 +1,42 @@
-import { validationError } from '../utils/errors';
-import { getServers } from './serversController';
-import { extractStream } from '../extractor/extractStream';
+import { validationError } from '../utils/errors.js';
+import { getServers } from './serversController.js';
+import { extractStream } from '../extractor/extractStream.js';
+import { fetchVidnestHindiStreamByEpisode } from '../extractor/vidnest.js';
 
+/**
+ * Stream Controller
+ * Fetches the streaming links for a specific episode
+ * Supports sub, dub, and Hindi dubbed (from Vidnest)
+ */
 const streamController = async (c) => {
   let { id, server = 'HD-1', type = 'sub' } = c.req.query();
 
   if (!id) throw new validationError('id is required');
 
+  type = type.toLowerCase();
   server = server.toUpperCase();
-  // let syncData = null;
-  // const Referer = config.baseurl + id;
-  // try {
-  //   const { data } = await axios.get(config.baseurl + id, {
-  //     headers: {
-  //       Referer: Referer,
-  //       ...config.headers,
-  //     },
-  //   });
-  //   syncData = extractSyncData(data);
-  // } catch (err) {
-  //   console.log(err.message);
-  //   throw new validationError('no syncData found');
-  // }
 
-  const episode = id.includes('ep=');
-  if (!episode) throw new validationError('episode  is not valid');
+  // Validate episode id
+  if (!id.includes('ep=')) throw new validationError('episode id is not valid');
 
+  // Fetch all available servers
   const servers = await getServers(id);
 
+  // Handle Hindi dubbed separately
+  if (type === 'hindi') {
+    const episodeNum = id.split('ep=').pop();
+    const hindiStreams = await fetchVidnestHindiStreamByEpisode(episodeNum);
+    if (!hindiStreams || hindiStreams.length === 0)
+      throw new validationError('Hindi dubbed stream not found');
+    return { server: 'Vidnest Hindi', type: 'hindi', streams: hindiStreams };
+  }
+
+  // For sub/dub streams
+  if (!servers[type]) throw new validationError('Invalid type requested', { type });
+
   const selectedServer = servers[type].find((el) => el.name === server);
-  if (!selectedServer) throw new validationError('invalid or server not found', { server });
+  if (!selectedServer)
+    throw new validationError('Invalid server or server not found', { server });
 
   const response = await extractStream({ selectedServer, id });
   return response;
