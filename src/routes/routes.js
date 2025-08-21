@@ -30,7 +30,7 @@ router.get('/servers', handler(serversController));
 router.get('/stream', handler(streamController));
 router.get('/genres', handler(allGenresController));
 
-// fallback route for undefined endpoints
+// catch-all route
 router.get('/*', (c) => {
   return c.html(`
     <!DOCTYPE html>
@@ -38,14 +38,14 @@ router.get('/*', (c) => {
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Endpoint Not Found</title>
+        <title>Document</title>
       </head>
       <body>
         <h1>
-          Please stop making requests to non-existent endpoints
+          bro please stop using unnecessary resources by making request to endpoints which do not exist
         </h1>
-        <p>If you need something, you can contact me here:</p>
-        <a href="https://t.me/Mst83din">Contact</a>
+        <p>if you want anything you can contact me here :</p>
+        <a href="https://t.me/Mst83din">here</a>
       </body>
     </html>
   `);
