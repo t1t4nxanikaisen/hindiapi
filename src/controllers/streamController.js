@@ -26,9 +26,14 @@ const streamController = async (c) => {
   if (type === 'hindi') {
     const episodeNum = id.split('ep=').pop();
     const hindiStreams = await fetchVidnestHindiStreamByEpisode(episodeNum);
-    if (!hindiStreams || hindiStreams.length === 0)
+    if (!hindiStreams || Object.keys(hindiStreams).length === 0)
       throw new validationError('Hindi dubbed stream not found');
-    return { server: 'Vidnest Hindi', type: 'hindi', streams: hindiStreams };
+
+    return {
+      server: 'Vidnest Hindi',
+      type: 'hindi',
+      streams: hindiStreams,
+    };
   }
 
   // For sub/dub streams
