@@ -11,13 +11,13 @@ import { fail } from './utils/response.js';
 import hianimeApiDocs from './utils/swaggerUi.js';
 import { logger } from 'hono/logger';
 
-const app = new Hono();
+config(); // load environment variables
 
-config();
+const app = new Hono();
 
 const origins = process.env.ORIGIN ? process.env.ORIGIN.split(',') : '*';
 
-// third party middlewares
+// CORS Middleware
 app.use(
   '*',
   cors({
@@ -27,43 +27,41 @@ app.use(
   })
 );
 
-// Apply the rate limiting middleware to all requests.
+// Rate Limiting Middleware
 app.use(
   rateLimiter({
     windowMs: process.env.RATE_LIMIT_WINDOW_MS || 60000,
     limit: process.env.RATE_LIMIT_LIMIT || 100,
-    standardHeaders: 'draft-6', // draft-6: `RateLimit-*` headers; draft-7: combined `RateLimit` header
-    keyGenerator: () => '<unique_key>', // Method to generate custom identifiers for clients.
-    // store: ... , // Redis, MemoryStore, etc. See below.
+    standardHeaders: 'draft-6',
+    keyGenerator: (c) => c.req.ip, // rate limit per IP
   })
 );
 
-// middlewares
-
-// routes
-
+// Logger for all API routes
 app.use('/api/v1/*', logger());
 
+// Health check endpoints
 app.get('/', (c) => {
   c.status(200);
-  return c.text('welcome to anime API 🎉 start by hitting /api/v1 for documentation');
+  return c.text('Welcome to the Hindi Anime API 🎉. Hit /api/v1 for documentation');
 });
-app.get('/ping', (c) => {
-  return c.text('pong');
-});
+
+app.get('/ping', (c) => c.text('pong'));
+
+// Main API routes
 app.route('/api/v1', hiAnimeRoutes);
 
+// Swagger Documentation
 app.get('/doc', (c) => c.json(hianimeApiDocs));
-
-// Use the middleware to serve Swagger UI at /ui
 app.get('/ui', swaggerUI({ url: '/doc' }));
+
+// Global Error Handler
 app.onError((err, c) => {
   if (err instanceof AppError) {
     return fail(c, err.message, err.statusCode, err.details);
   }
-  console.error('unexpacted Error :' + err.message);
-
-  return fail(c);
+  console.error('Unexpected Error: ' + err.message);
+  return fail(c, 'Something went wrong on the server', 500);
 });
 
 export default app;
