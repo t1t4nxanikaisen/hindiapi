@@ -1,40 +1,49 @@
-import axios from 'axios';
-import * as cheerio from 'cheerio';
+import axios from "axios";
+import * as cheerio from "cheerio";
 
-/**
- * Fetch all Hindi dubbed streams for an anime episode
- */
-export const fetchVidnestHindiStreams = async (animeId, episodeNumber) => {
+const USER_AGENT = "Mozilla/5.0 (compatible; Vidnest/1.0)";
+
+async function fetchHtml(url) {
+  const { data } = await axios.get(url, {
+    headers: { "User-Agent": USER_AGENT },
+    timeout: 10000,
+  });
+  return data;
+}
+
+export async function fetchVidnestHindiStreams(anilistId, epNum) {
+  if (!anilistId || !epNum) return [];
+  const url = `https://vidnest.fun/anime/${anilistId}/${epNum}/hindi`;
   try {
-    const url = `https://vidnest.com/api/hindi/${animeId}/episodes/${episodeNumber}`;
-    const { data } = await axios.get(url);
-    if (!data || !data.streams) return [];
-    return data.streams.map((s) => ({
-      server: s.server,
-      url: s.url,
-      quality: s.quality,
-    }));
-  } catch (err) {
-    console.error('Vidnest fetchHindiStreams error:', err.message);
+    const html = await fetchHtml(url);
+    const $ = cheerio.load(html);
+    const streams = [];
+
+    $('iframe').each((_, el) => {
+      const src = $(el).attr("src");
+      if (src) streams.push({ url: src });
+    });
+
+    $('video source').each((_, el) => {
+      const src = $(el).attr("src");
+      if (src) streams.push({ url: src });
+    });
+
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr("href");
+      if (href?.match(/\.(m3u8|mp4)\b/)) streams.push({ url: href });
+    });
+
+    const scriptText = $('script')
+      .toArray()
+      .map((s) => $(s).html())
+      .join("\n");
+    const m3u8s = [...new Set((scriptText.match(/https?:\/\/\S+\.m3u8/g) || []))];
+    m3u8s.forEach((u) => streams.push({ url: u }));
+
+    return streams.filter((s, i, arr) => s.url && arr.findIndex(x => x.url === s.url) === i);
+  } catch (e) {
+    console.warn("Vidnest fetch error:", e.message);
     return [];
   }
-};
-
-/**
- * Fetch a single Hindi dubbed stream by episode number
- */
-export const fetchVidnestHindiStreamByEpisode = async (episodeNumber) => {
-  try {
-    const url = `https://vidnest.com/api/hindi/episode/${episodeNumber}`;
-    const { data } = await axios.get(url);
-    if (!data || !data.streams) return [];
-    return data.streams.map((s) => ({
-      server: s.server,
-      url: s.url,
-      quality: s.quality,
-    }));
-  } catch (err) {
-    console.error('Vidnest fetchHindiStreamByEpisode error:', err.message);
-    return [];
-  }
-};
+}
