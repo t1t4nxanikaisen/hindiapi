@@ -2,11 +2,11 @@ import axios from 'axios';
 import { validationError } from '../utils/errors.js';
 import config from '../config/config.js';
 import { extractEpisodes } from '../extractor/extractEpisodes.js';
-import { fetchVidnestHindiStreams } from '../extractor/vidnest.js';
 
 /**
  * Episodes Controller
- * Fetches all episode info (sub, dub, and Hindi dubbed) for an anime.
+ * Fetches all episode info (sub and dub) for an anime.
+ * Hindi dubbed streams are removed.
  */
 const episodesController = async (c) => {
   const id = c.req.param('id');
@@ -27,20 +27,14 @@ const episodesController = async (c) => {
 
     const episodes = extractEpisodes(data.html);
 
-    // 2️⃣ Fetch Hindi dubbed streams from Vidnest
-    const hindiStreamsPromises = episodes.map((ep) =>
-      fetchVidnestHindiStreams(idNum, ep.episodeNumber)
-    );
-
-    const hindiStreamsResults = await Promise.all(hindiStreamsPromises);
-
-    // 3️⃣ Attach Hindi streams to each episode
-    const enrichedEpisodes = episodes.map((ep, index) => ({
+    // 2️⃣ Only include sub and dub streams
+    const cleanedEpisodes = episodes.map((ep) => ({
       ...ep,
-      hindiStreams: hindiStreamsResults[index] || [],
+      subStreams: ep.subStreams || [],
+      dubStreams: ep.dubStreams || [],
     }));
 
-    return enrichedEpisodes;
+    return cleanedEpisodes;
   } catch (err) {
     console.error(err.message);
     throw new validationError('Make sure the id is correct', {
