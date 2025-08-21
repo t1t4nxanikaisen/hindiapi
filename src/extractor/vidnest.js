@@ -2,9 +2,7 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 
 /**
- * Fetch all Hindi dubbed streams for an anime
- * @param {string} animeId
- * @param {number} episodeNumber
+ * Fetch all Hindi dubbed streams for an anime episode
  */
 export const fetchVidnestHindiStreams = async (animeId, episodeNumber) => {
   try {
@@ -24,7 +22,6 @@ export const fetchVidnestHindiStreams = async (animeId, episodeNumber) => {
 
 /**
  * Fetch a single Hindi dubbed stream by episode number
- * @param {number|string} episodeNumber
  */
 export const fetchVidnestHindiStreamByEpisode = async (episodeNumber) => {
   try {
