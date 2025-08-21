@@ -2,16 +2,12 @@
 import { validationError } from "../utils/errors.js";
 import { getServers } from "./serversController.js";
 import { extractStream } from "../extractor/extractStream.js";
-import { slugToTitle, getAniListIdByTitle } from "../utils/anilist.js";
-import { fetchVidnestHindiStreams } from "../extractor/vidnest.js";
+import anilistUtils from "../utils/anilist.js";
+import vidnest from "../extractor/vidnest.js";
 
-/**
- * streamController
- * Query params:
- *  - id: episode id (must include ?ep=)
- *  - type: sub | dub | hindi | all  (default all)
- *  - server: optional server name to extract playable link
- */
+const { slugToTitle, getAniListIdByTitle } = anilistUtils;
+const { fetchVidnestHindiStreams } = vidnest;
+
 const streamController = async (c) => {
   let { id, server = null, type = "all" } = c.req.query();
 
@@ -21,7 +17,7 @@ const streamController = async (c) => {
   type = String(type).toLowerCase();
   server = server ? String(server).toUpperCase() : null;
 
-  // 1) gather sub/dub servers from existing helper (may throw)
+  // gather sub/dub servers
   let servers = {};
   try {
     servers = (await getServers(id)) || {};
@@ -30,7 +26,7 @@ const streamController = async (c) => {
     servers = {};
   }
 
-  // 2) attempt to fetch Vidnest Hindi (best-effort)
+  // Prepare vidnest/hindi list when needed
   const [animeSlug] = id.split("?");
   const epNum = id.includes("ep=") ? id.split("ep=").pop() : null;
 
@@ -41,13 +37,14 @@ const streamController = async (c) => {
     const streams = await fetchVidnestHindiStreams(alId, epNum);
     if (!streams || streams.length === 0) throw new validationError("Hindi dubbed stream not found");
     if (server) {
-      const matched = streams.find((s) => (s.server || "").toUpperCase() === server || (s.title || "").toUpperCase() === server);
+      const matched = streams.find((s) => ((s.server || "") + "").toUpperCase() === server || ((s.title || "") + "").toUpperCase() === server);
       if (matched) return { success: true, data: { server: server, streams: [matched] } };
     }
     return { success: true, data: { server: "VIDNEST-HINDI", streams } };
   }
 
   if (type === "all") {
+    // attach hindi non-fatal
     try {
       const titleGuess = slugToTitle(animeSlug);
       const alId = await getAniListIdByTitle(titleGuess);
@@ -59,10 +56,10 @@ const streamController = async (c) => {
     return { success: true, data: { servers } };
   }
 
-  // type is sub/dub => require servers[type]
+  // type is sub or dub
   if (!servers[type]) throw new validationError("Invalid type requested or no servers available for this type", { type });
 
-  // If server provided, extract playable stream for that server
+  // if server specified, extract playable
   if (server) {
     const selectedServer = servers[type].find((el) => {
       if (!el) return false;
@@ -73,7 +70,7 @@ const streamController = async (c) => {
     return { success: true, data: { server: selectedServer.name || server, streams: response } };
   }
 
-  // otherwise return list of servers for the requested type
+  // otherwise return list for requested type
   return { success: true, data: { servers: { [type]: servers[type] } } };
 };
 
