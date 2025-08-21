@@ -1,46 +1,52 @@
-import axios from 'axios';
-import { validationError } from '../utils/errors.js';
-import config from '../config/config.js';
-import { extractEpisodes } from '../extractor/extractEpisodes.js';
+import fetch from "node-fetch";
 
-/**
- * Episodes Controller
- * Fetches all episode info (sub and dub) for an anime.
- * Hindi dubbed streams are removed.
- */
-const episodesController = async (c) => {
-  const id = c.req.param('id');
-  if (!id) throw new validationError('id is required');
-
-  const Referer = `/watch/${id}`;
-  const idNum = id.split('-').at(-1);
-  const ajaxUrl = `/ajax/v2/episode/list/${idNum}`;
+export const getEpisodeDetails = async (c) => {
+  const { animeId } = c.req.param();
 
   try {
-    // 1️⃣ Fetch sub/dub episodes from the site
-    const { data } = await axios.get(config.baseurl + ajaxUrl, {
-      headers: {
-        Referer,
-        ...config.headers,
-      },
-    });
+    // 1. Fetch episodes from Gogoanime (SUB + DUB)
+    const res = await fetch(
+      `https://api.consumet.org/anime/gogoanime/info/${animeId}`
+    );
+    const data = await res.json();
 
-    const episodes = extractEpisodes(data.html);
+    if (!data?.episodes || !Array.isArray(data.episodes)) {
+      return c.json({ episodes: [] }, 200);
+    }
 
-    // 2️⃣ Only include sub and dub streams
-    const cleanedEpisodes = episodes.map((ep) => ({
-      ...ep,
-      subStreams: ep.subStreams || [],
-      dubStreams: ep.dubStreams || [],
+    // 2. Fetch Hindi Dub episodes from your Hindi API
+    let hindiRes = [];
+    try {
+      const hr = await fetch(
+        `https://hindiapi.onrender.com/api/v1/episodes/${animeId}`
+      );
+      hindiRes = await hr.json();
+    } catch (err) {
+      console.warn("Hindi API not available, skipping...");
+    }
+
+    // Make a quick lookup table for Hindi streams by episode number
+    const hindiMap = {};
+    if (hindiRes?.episodes) {
+      hindiRes.episodes.forEach((ep) => {
+        hindiMap[ep.episodeNumber] = ep.streams || [];
+      });
+    }
+
+    // 3. Merge into unified format
+    const episodes = data.episodes.map((ep) => ({
+      id: `${animeId}?ep=${ep.number}`,
+      episodeNumber: ep.number,
+      isFiller: ep.isFiller ?? false,
+      title: ep.title ?? `Episode ${ep.number}`,
+      sub: true,
+      dub: true,
+      hindiStreams: hindiMap[ep.number] || [], // attach Hindi if available
     }));
 
-    return cleanedEpisodes;
+    return c.json({ episodes }, 200);
   } catch (err) {
-    console.error(err.message);
-    throw new validationError('Make sure the id is correct', {
-      validIdEX: 'one-piece-100',
-    });
+    console.error(err);
+    return c.json({ episodes: [] }, 500);
   }
 };
-
-export default episodesController;
