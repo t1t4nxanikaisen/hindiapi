@@ -16,27 +16,18 @@ const streamController = async (c) => {
   type = type.toLowerCase();
   server = server.toUpperCase();
 
-  // Validate episode id
   if (!id.includes('ep=')) throw new validationError('episode id is not valid');
 
-  // Fetch all available servers
   const servers = await getServers(id);
 
-  // Handle Hindi dubbed separately
   if (type === 'hindi') {
     const episodeNum = id.split('ep=').pop();
     const hindiStreams = await fetchVidnestHindiStreamByEpisode(episodeNum);
-    if (!hindiStreams || Object.keys(hindiStreams).length === 0)
+    if (!hindiStreams || hindiStreams.length === 0)
       throw new validationError('Hindi dubbed stream not found');
-
-    return {
-      server: 'Vidnest Hindi',
-      type: 'hindi',
-      streams: hindiStreams,
-    };
+    return { server: 'Vidnest Hindi', type: 'hindi', streams: hindiStreams };
   }
 
-  // For sub/dub streams
   if (!servers[type]) throw new validationError('Invalid type requested', { type });
 
   const selectedServer = servers[type].find((el) => el.name === server);
